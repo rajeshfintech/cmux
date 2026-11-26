@@ -4,6 +4,8 @@
 // Click a tile to jump to the workspace, or a tab row to jump to that tab.
 // Click a status in the header to show only the tiles in that state; click it
 // again (or "All") to show everything. "Columns" sets how many tiles per row.
+// The x on a tile closes that workspace after a second, confirming click;
+// right-click a tile or a tab row for the same without the extra step.
 //
 // States, most urgent first: needs (an agent is waiting for input), ready (an
 // agent finished and its reply is unread), working, review, done, idle.
@@ -25,6 +27,13 @@ const MAX_TABS = 6;
 
 const [filter, setFilter] = signal("all");
 const [cols, setCols] = signal(5);
+// The workspace whose x was clicked and is waiting for the confirming click.
+const [armed, setArmed] = signal(null);
+
+function closeWorkspace(id) {
+  setArmed(null);
+  cmux("workspace.close", { workspace_id: id });
+}
 
 const epoch = () => data.clock()?.epoch ?? 0;
 
@@ -146,6 +155,11 @@ function tabRow(t) {
     .background(() => (loud() ? meta().tint + "2e" : null))
     .hoverBackground("#7f7f7f33")
     .cursor("pointer")
+    .contextMenu([
+      Button("Close Tab", () => {
+        if (t().surfaceId) cmux("surface.close", { surface_id: t().surfaceId, workspace_id: t().workspaceId });
+      }).destructive(),
+    ])
     .onTap(() => {
       cmux("workspace.select", { workspace_id: t().workspaceId });
       if (t().surfaceId) cmux("surface.focus", { surface_id: t().surfaceId, workspace_id: t().workspaceId });
@@ -184,11 +198,38 @@ function tile(c) {
         .font(11).monospaced().bold().color(() => meta().tint)
         .paddingHorizontal(() => (w().unread > 0 ? 6 : 0)).paddingVertical(1)
         .background(() => (w().unread > 0 ? "#FFFFFF" : null)).cornerRadius(8),
+      Image("xmark").font(10).weight("bold")
+        .padding(4).cornerRadius(9)
+        .background("#00000033").hoverBackground("#FF453Acc")
+        .cursor("pointer")
+        .onTap(() => setArmed(armed() === c().key ? null : c().key)),
     ])
       .color(() => (idle() ? "#D0D0D6" : "#FFFFFF"))
       .padding(8)
       .frame({ maxWidth: "infinity" })
       .background(() => meta().tint + (idle() ? "4d" : "eb")),
+
+    // Shown only after the x was clicked: closing ends the workspace's sessions.
+    ForEach({ items: () => (armed() === c().key ? [{ key: "confirm" }] : []), key: (e) => e.key }, () =>
+      HStack({ spacing: 8 }, [
+        Text(() => "Close this workspace" + ((w().tabCount ?? 0) > 1 ? " and its " + w().tabCount + " tabs?" : "?"))
+          .font(12).weight("semibold").color("#FFFFFF").lineLimit(1),
+        Spacer({ minLength: 0 }),
+        Text("Close").font(12).weight("bold").color("#FFFFFF")
+          .paddingHorizontal(9).paddingVertical(3).cornerRadius(6)
+          .background("#00000059").hoverBackground("#000000a6")
+          .cursor("pointer").fixedSize().layoutPriority(2)
+          .onTap(() => closeWorkspace(c().key)),
+        Text("Keep").font(12).weight("semibold").color("#FFFFFF")
+          .paddingHorizontal(9).paddingVertical(3).cornerRadius(6)
+          .hoverBackground("#00000059")
+          .cursor("pointer").fixedSize().layoutPriority(2)
+          .onTap(() => setArmed(null)),
+      ])
+        .paddingHorizontal(8).paddingVertical(6)
+        .frame({ maxWidth: "infinity" })
+        .background("#FF453A")
+    ),
 
     VStack({ spacing: 6 }, [
       lead(Text(() => w().title).font(15).weight("semibold").lineLimit(2).truncation("tail")),
@@ -207,7 +248,13 @@ function tile(c) {
     .borderWidth(() => (w().selected || c().state === "needs" ? 2 : 1))
     .opacity(() => (idle() ? 0.8 : 1))
     .cursor("pointer")
-    .onTap(() => cmux("workspace.select", { workspace_id: c().key }));
+    .contextMenu([
+      Button("Close Workspace", () => closeWorkspace(c().key)).destructive(),
+    ])
+    .onTap(() => {
+      setArmed(null);
+      cmux("workspace.select", { workspace_id: c().key });
+    });
 }
 
 // A header status: shows its count and filters the grid to that state.
