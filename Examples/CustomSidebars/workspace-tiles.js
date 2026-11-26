@@ -5,8 +5,9 @@
 // Click a status in the header to show only the tiles in that state; click it
 // again (or "All") to show everything. "Columns" sets how many tiles per row.
 // The x on a tile closes that workspace at once, running agents included.
-// "Close idle" in the header closes every idle workspace; it asks for a second
-// click, and leaves pinned workspaces and ones with a listening port alone.
+// With the idle filter on, "Close idle" appears on the right of the header and
+// closes every idle workspace; it asks for a second click, and leaves pinned
+// workspaces and ones with a listening port alone.
 // Right-click a tab row to close just that tab.
 //
 // States, most urgent first: needs (an agent is waiting for input), ready (an
@@ -284,8 +285,11 @@ sidebar(() =>
       Text("Workspaces").font(18).bold(),
       filterPill("all", "all", "#FFFFFF", () => tiles().length),
       ...FILTERS.map((k) => filterPill(k, META[k].label.toLowerCase(), META[k].tint, () => countOf(k))),
-      closeIdleButton(),
       Spacer({ minLength: 0 }),
+      // Only while the idle filter is on, and away from the filters, so it
+      // cannot be hit by accident.
+      ForEach({ items: () => (filter() === "idle" ? [{ key: "close-idle" }] : []), key: (e) => e.key }, () =>
+        closeIdleButton().paddingTrailing(24)),
       Text("Columns").font(12).color("tertiary"),
       Button("-", () => setCols(Math.max(1, cols() - 1))),
       Text(() => String(cols())).font(12).monospaced(),
