@@ -4,8 +4,10 @@
 // Click a tile to jump to the workspace, or a tab row to jump to that tab.
 // Click a status in the header to show only the tiles in that state; click it
 // again (or "All") to show everything. "Columns" sets how many tiles per row.
-// The x on a tile closes that workspace after a second, confirming click;
-// right-click a tile or a tab row for the same without the extra step.
+// The x on a tile closes that workspace at once, running agents included.
+// "Close idle" in the header closes every idle workspace; it asks for a second
+// click, and leaves pinned workspaces and ones with a listening port alone.
+// Right-click a tab row to close just that tab.
 //
 // States, most urgent first: needs (an agent is waiting for input), ready (an
 // agent finished and its reply is unread), working, review, done, idle.
@@ -27,12 +29,13 @@ const MAX_TABS = 6;
 
 const [filter, setFilter] = signal("all");
 const [cols, setCols] = signal(5);
-// The workspace whose x was clicked and is waiting for the confirming click.
-const [armed, setArmed] = signal(null);
+// True after the first click on "Close idle", until the second click or any filter click.
+const [bulkArmed, setBulkArmed] = signal(false);
 
+// cmux refuses to close a workspace with a running process unless forced, and
+// every workspace hosting an agent has one.
 function closeWorkspace(id) {
-  setArmed(null);
-  cmux("workspace.close", { workspace_id: id });
+  cmux("workspace.close", { workspace_id: id, force: true });
 }
 
 const epoch = () => data.clock()?.epoch ?? 0;
@@ -120,6 +123,9 @@ const tiles = computed(() => {
 });
 
 const countOf = (state) => tiles().filter((t) => t.state === state).length;
+// Idle workspaces "Close idle" may close: not pinned, and nothing listening on a port.
+const closableIdle = computed(() =>
+  tiles().filter((t) => t.state === "idle" && !t.w.pinned && !(t.w.portCount > 0)));
 const visible = computed(() => (filter() === "all" ? tiles() : tiles().filter((t) => t.state === filter())));
 
 // Rows keep their index as identity, so tiles update in place as states change.
@@ -202,34 +208,12 @@ function tile(c) {
         .padding(4).cornerRadius(9)
         .background("#00000033").hoverBackground("#FF453Acc")
         .cursor("pointer")
-        .onTap(() => setArmed(armed() === c().key ? null : c().key)),
+        .onTap(() => closeWorkspace(c().key)),
     ])
       .color(() => (idle() ? "#D0D0D6" : "#FFFFFF"))
       .padding(8)
       .frame({ maxWidth: "infinity" })
       .background(() => meta().tint + (idle() ? "4d" : "eb")),
-
-    // Shown only after the x was clicked: closing ends the workspace's sessions.
-    ForEach({ items: () => (armed() === c().key ? [{ key: "confirm" }] : []), key: (e) => e.key }, () =>
-      HStack({ spacing: 8 }, [
-        Text(() => "Close this workspace" + ((w().tabCount ?? 0) > 1 ? " and its " + w().tabCount + " tabs?" : "?"))
-          .font(12).weight("semibold").color("#FFFFFF").lineLimit(1),
-        Spacer({ minLength: 0 }),
-        Text("Close").font(12).weight("bold").color("#FFFFFF")
-          .paddingHorizontal(9).paddingVertical(3).cornerRadius(6)
-          .background("#00000059").hoverBackground("#000000a6")
-          .cursor("pointer").fixedSize().layoutPriority(2)
-          .onTap(() => closeWorkspace(c().key)),
-        Text("Keep").font(12).weight("semibold").color("#FFFFFF")
-          .paddingHorizontal(9).paddingVertical(3).cornerRadius(6)
-          .hoverBackground("#00000059")
-          .cursor("pointer").fixedSize().layoutPriority(2)
-          .onTap(() => setArmed(null)),
-      ])
-        .paddingHorizontal(8).paddingVertical(6)
-        .frame({ maxWidth: "infinity" })
-        .background("#FF453A")
-    ),
 
     VStack({ spacing: 6 }, [
       lead(Text(() => w().title).font(15).weight("semibold").lineLimit(2).truncation("tail")),
@@ -251,10 +235,7 @@ function tile(c) {
     .contextMenu([
       Button("Close Workspace", () => closeWorkspace(c().key)).destructive(),
     ])
-    .onTap(() => {
-      setArmed(null);
-      cmux("workspace.select", { workspace_id: c().key });
-    });
+    .onTap(() => cmux("workspace.select", { workspace_id: c().key }));
 }
 
 // A header status: shows its count and filters the grid to that state.
@@ -271,7 +252,30 @@ function filterPill(key, label, tint, count) {
     .borderWidth(1.5)
     .hoverBackground("#7f7f7f3d")
     .cursor("pointer")
-    .onTap(() => setFilter(active() && key !== "all" ? "all" : key));
+    .onTap(() => {
+      setBulkArmed(false);
+      setFilter(active() && key !== "all" ? "all" : key);
+    });
+}
+
+// Two clicks on the same button: the first shows what will happen, the second does it.
+function closeIdleButton() {
+  const n = () => closableIdle().length;
+  return Text(() => (bulkArmed() ? "Click again to close " + n() + " idle" : "Close idle (" + n() + ")"))
+    .font(13).weight("semibold")
+    .color(() => (bulkArmed() ? "#FFFFFF" : n() ? "#FF453A" : "tertiary"))
+    .paddingHorizontal(10).paddingVertical(5)
+    .cornerRadius(13)
+    .background(() => (bulkArmed() ? "#FF453A" : "#7f7f7f1f"))
+    .hoverBackground("#FF453A59")
+    .cursor("pointer")
+    .fixedSize()
+    .onTap(() => {
+      if (!n()) return;
+      if (!bulkArmed()) { setBulkArmed(true); return; }
+      setBulkArmed(false);
+      for (const t of closableIdle()) closeWorkspace(t.key);
+    });
 }
 
 sidebar(() =>
@@ -280,6 +284,7 @@ sidebar(() =>
       Text("Workspaces").font(18).bold(),
       filterPill("all", "all", "#FFFFFF", () => tiles().length),
       ...FILTERS.map((k) => filterPill(k, META[k].label.toLowerCase(), META[k].tint, () => countOf(k))),
+      closeIdleButton(),
       Spacer({ minLength: 0 }),
       Text("Columns").font(12).color("tertiary"),
       Button("-", () => setCols(Math.max(1, cols() - 1))),
