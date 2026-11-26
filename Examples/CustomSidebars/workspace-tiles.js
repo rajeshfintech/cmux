@@ -3,7 +3,8 @@
 //   cmux sidebar open workspace-tiles
 // Click a tile to jump to the workspace, or a tab row to jump to that tab.
 // Click a status in the header to show only the tiles in that state; click it
-// again (or "All") to show everything. "Columns" sets how many tiles per row.
+// again (or "All") to show everything. "Columns" sets how many tiles per row;
+// tiles share the pane's width, so the grid never runs past its edges.
 // The x on a tile closes that workspace at once, running agents included.
 // With the idle filter on, "Close idle" appears on the right of the header and
 // closes every idle workspace; it asks for a second click, and leaves pinned
@@ -24,12 +25,11 @@ const META = {
 };
 const RANK = { needs: 0, ready: 1, working: 2, idle: 3, none: 4 };
 const FILTERS = ["needs", "ready", "working", "idle"];
-const TILE_WIDTH = 300;
 const TILE_HEIGHT = 290;
 const MAX_TABS = 6;
 
 const [filter, setFilter] = signal("all");
-const [cols, setCols] = signal(5);
+const [cols, setCols] = signal(4);
 // True after the first click on "Close idle", until the second click or any filter click.
 const [bulkArmed, setBulkArmed] = signal(false);
 
@@ -134,7 +134,12 @@ const rows = computed(() => {
   const n = Math.max(1, cols());
   const list = visible();
   const out = [];
-  for (let i = 0; i < list.length; i += n) out.push({ key: "row" + i / n, cells: list.slice(i, i + n) });
+  for (let i = 0; i < list.length; i += n) {
+    const cells = list.slice(i, i + n);
+    // Fill a short last row with blanks so its tiles stay as wide as the others.
+    while (cells.length < n) cells.push({ key: "pad" + cells.length });
+    out.push({ key: "row" + i / n, cells });
+  }
   return out;
 });
 
@@ -198,7 +203,7 @@ function tile(c) {
     // Status band.
     HStack({ spacing: 6 }, [
       Image(() => meta().icon).font(12),
-      Text(() => meta().label.toUpperCase()).font(13).weight("bold").lineLimit(1).fixedSize().layoutPriority(2),
+      Text(() => meta().label.toUpperCase()).font(13).weight("bold").lineLimit(1).truncation("tail"),
       Spacer({ minLength: 0 }),
       Text(() => ((w().tabCount ?? 0) > 1 ? w().tabCount + " tabs" : "")).font(12).monospaced().weight("semibold").lineLimit(1).fixedSize(),
       Text(() => (w().unread > 0 ? String(w().unread) : ""))
@@ -208,6 +213,7 @@ function tile(c) {
       Image("xmark").font(10).weight("bold")
         .padding(4).cornerRadius(9)
         .background("#00000033").hoverBackground("#FF453Acc")
+        .fixedSize().layoutPriority(3)
         .cursor("pointer")
         .onTap(() => closeWorkspace(c().key)),
     ])
@@ -226,7 +232,7 @@ function tile(c) {
       Spacer({ minLength: 0 }),
     ]).padding(10),
   ])
-    .frame({ width: TILE_WIDTH, height: TILE_HEIGHT })
+    .frame({ maxWidth: "infinity", height: TILE_HEIGHT })
     .background(() => meta().tint + (idle() ? "12" : "26"))
     .cornerRadius(10)
     .borderColor(() => (w().selected ? "#FFFFFF" : c().state === "needs" ? meta().tint : "#8E8E934d"))
@@ -283,28 +289,34 @@ sidebar(() =>
   VStack({ spacing: 10 }, [
     HStack({ spacing: 10 }, [
       Text("Workspaces").font(18).bold(),
-      filterPill("all", "all", "#FFFFFF", () => tiles().length),
-      ...FILTERS.map((k) => filterPill(k, META[k].label.toLowerCase(), META[k].tint, () => countOf(k))),
       Spacer({ minLength: 0 }),
-      // Only while the idle filter is on, and away from the filters, so it
-      // cannot be hit by accident.
-      ForEach({ items: () => (filter() === "idle" ? [{ key: "close-idle" }] : []), key: (e) => e.key }, () =>
-        closeIdleButton().paddingTrailing(24)),
       Text("Columns").font(12).color("tertiary"),
       Button("-", () => setCols(Math.max(1, cols() - 1))),
       Text(() => String(cols())).font(12).monospaced(),
       Button("+", () => setCols(Math.min(8, cols() + 1))),
       Text(() => data.clock()?.time ?? "").font(12).monospaced().color("tertiary"),
     ]),
+    // Filters on their own row, so a narrow pane does not push them off the edge.
+    HStack({ spacing: 8 }, [
+      filterPill("all", "all", "#FFFFFF", () => tiles().length),
+      ...FILTERS.map((k) => filterPill(k, META[k].short, META[k].tint, () => countOf(k))),
+      Spacer({ minLength: 0 }),
+      // Only while the idle filter is on, and away from the filters, so it
+      // cannot be hit by accident.
+      ForEach({ items: () => (filter() === "idle" ? [{ key: "close-idle" }] : []), key: (e) => e.key }, () =>
+        closeIdleButton()),
+    ]),
     Divider(),
     ForEach({ items: rows, key: (r) => r.key }, (r) =>
       HStack({ spacing: 10 }, [
-        ForEach({ items: () => r().cells, key: (c) => c.key }, (c) => tile(c)),
-        Spacer({ minLength: 0 }),
+        ForEach({ items: () => r().cells, key: (c) => c.key }, (c, key) =>
+          String(key).startsWith("pad")
+            ? Rectangle({ height: 1 }).fill("#00000000").frame({ maxWidth: "infinity" })
+            : tile(c)),
       ])
     ),
     ForEach({ items: () => (visible().length ? [] : [{ key: "empty" }]), key: (e) => e.key }, () =>
       lead(Text("No workspaces in this state.").font(13).color("tertiary"))),
     Spacer(),
-  ]).padding(12)
+  ]).padding(12).frame({ maxWidth: "infinity" })
 )
