@@ -5,6 +5,7 @@
 // Click a status in the header to show only the tiles in that state; click it
 // again (or "All") to show everything. "Columns" sets how many tiles per row;
 // tiles share the pane's width, so the grid never runs past its edges.
+// "Text" makes everything larger or smaller, like Cmd-plus in a terminal.
 // The x on a tile closes that workspace at once, running agents included.
 // With the idle filter on, "Close idle" appears on the right of the header and
 // closes every idle workspace; it asks for a second click, and leaves pinned
@@ -30,6 +31,13 @@ const MAX_TABS = 6;
 
 const [filter, setFilter] = signal("all");
 const [cols, setCols] = signal(4);
+// Text size, as a multiple of the designed sizes. "Text - / +" in the header changes it.
+const [zoom, setZoom] = signal(1);
+const ZOOM_MIN = 0.8;
+const ZOOM_MAX = 2;
+const stepZoom = (by) => setZoom(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round((zoom() + by) * 10) / 10)));
+// A font size that follows the zoom.
+const fs = (size) => () => Math.round(size * zoom());
 // True after the first click on "Close idle", until the second click or any filter click.
 const [bulkArmed, setBulkArmed] = signal(false);
 
@@ -151,15 +159,15 @@ function tabRow(t) {
   const loud = () => t().state === "needs" || t().state === "ready";
   const quiet = () => t().state === "idle" || t().state === "none";
   return HStack({ spacing: 7 }, [
-    Image(() => meta().icon).font(11).color(() => meta().tint).opacity(() => (quiet() ? 0.6 : 1))
+    Image(() => meta().icon).font(fs(11)).color(() => meta().tint).opacity(() => (quiet() ? 0.6 : 1))
       .frame({ width: 16 }),
-    Text(() => t().title).font(13)
+    Text(() => t().title).font(fs(13))
       .weight(() => (loud() ? "semibold" : "regular"))
       .color(() => (quiet() ? "secondary" : "primary"))
       .lineLimit(1).truncation("tail"),
     Spacer({ minLength: 0 }),
     Text(() => (quiet() ? "" : meta().short + (t().since ? " " + ago(epoch() - t().since) : "")))
-      .font(10).monospaced().weight("semibold").color(() => meta().tint)
+      .font(fs(10)).monospaced().weight("semibold").color(() => meta().tint)
       .fixedSize().layoutPriority(2),
   ])
     .paddingHorizontal(4).paddingVertical(3)
@@ -184,15 +192,15 @@ function detail(c, d) {
   if (key === "chips") {
     return HStack({ spacing: 10 }, [
       ForEach({ items: () => c().chips, key: (x) => x.key }, (x) =>
-        Text(() => x().text).font(11).weight("semibold").color(() => x().tint).fixedSize()),
+        Text(() => x().text).font(fs(11)).weight("semibold").color(() => x().tint).fixedSize()),
       Spacer({ minLength: 0 }),
     ]);
   }
-  if (key === "ref") return lead(Text(() => d().text).font(11).monospaced().color("secondary").lineLimit(1));
+  if (key === "ref") return lead(Text(() => d().text).font(fs(11)).monospaced().color("secondary").lineLimit(1));
   if (key === "note") {
-    return lead(Text(() => d().text).font(11).italic().color(() => META[c().state].tint).lineLimit(1));
+    return lead(Text(() => d().text).font(fs(11)).italic().color(() => META[c().state].tint).lineLimit(1));
   }
-  return lead(Text(() => d().text).font(12).color("secondary").lineLimit(2).truncation("tail"));
+  return lead(Text(() => d().text).font(fs(12)).color("secondary").lineLimit(2).truncation("tail"));
 }
 
 function tile(c) {
@@ -202,15 +210,15 @@ function tile(c) {
   return VStack({ spacing: 0 }, [
     // Status band.
     HStack({ spacing: 6 }, [
-      Image(() => meta().icon).font(12),
-      Text(() => meta().label.toUpperCase()).font(13).weight("bold").lineLimit(1).truncation("tail"),
+      Image(() => meta().icon).font(fs(12)),
+      Text(() => meta().label.toUpperCase()).font(fs(13)).weight("bold").lineLimit(1).truncation("tail"),
       Spacer({ minLength: 0 }),
-      Text(() => ((w().tabCount ?? 0) > 1 ? w().tabCount + " tabs" : "")).font(12).monospaced().weight("semibold").lineLimit(1).fixedSize(),
+      Text(() => ((w().tabCount ?? 0) > 1 ? w().tabCount + " tabs" : "")).font(fs(12)).monospaced().weight("semibold").lineLimit(1).fixedSize(),
       Text(() => (w().unread > 0 ? String(w().unread) : ""))
-        .font(11).monospaced().bold().color(() => meta().tint)
+        .font(fs(11)).monospaced().bold().color(() => meta().tint)
         .paddingHorizontal(() => (w().unread > 0 ? 6 : 0)).paddingVertical(1)
         .background(() => (w().unread > 0 ? "#FFFFFF" : null)).cornerRadius(8),
-      Image("xmark").font(10).weight("bold")
+      Image("xmark").font(fs(10)).weight("bold")
         .padding(4).cornerRadius(9)
         .background("#00000033").hoverBackground("#FF453Acc")
         .fixedSize().layoutPriority(3)
@@ -223,16 +231,16 @@ function tile(c) {
       .background(() => meta().tint + (idle() ? "4d" : "eb")),
 
     VStack({ spacing: 6 }, [
-      lead(Text(() => w().title).font(15).weight("semibold").lineLimit(2).truncation("tail")),
+      lead(Text(() => w().title).font(fs(15)).weight("semibold").lineLimit(2).truncation("tail")),
       ForEach({ items: () => c().details, key: (d) => d.key }, (d) => detail(c, d)),
       Divider(),
       ForEach({ items: () => c().tabs, key: (t) => t.id }, (t) => tabRow(t)),
       ForEach({ items: () => (c().hidden ? [{ key: "more", n: c().hidden }] : []), key: (m) => m.key }, (m) =>
-        lead(Text(() => "+" + m().n + " more tabs").font(11).color("tertiary"))),
+        lead(Text(() => "+" + m().n + " more tabs").font(fs(11)).color("tertiary"))),
       Spacer({ minLength: 0 }),
     ]).padding(10),
   ])
-    .frame({ maxWidth: "infinity", height: TILE_HEIGHT })
+    .frame(() => ({ maxWidth: "infinity", height: Math.round(TILE_HEIGHT * zoom()) }))
     .background(() => meta().tint + (idle() ? "12" : "26"))
     .cornerRadius(10)
     .borderColor(() => (w().selected ? "#FFFFFF" : c().state === "needs" ? meta().tint : "#8E8E934d"))
@@ -250,7 +258,7 @@ function filterPill(key, label, tint, count) {
   const active = () => filter() === key;
   return HStack({ spacing: 6 }, [
     Circle({ size: 9 }).fill(tint),
-    Text(() => count() + " " + label).font(13).weight("semibold"),
+    Text(() => count() + " " + label).font(fs(13)).weight("semibold"),
   ])
     .paddingHorizontal(10).paddingVertical(5)
     .cornerRadius(13)
@@ -269,7 +277,7 @@ function filterPill(key, label, tint, count) {
 function closeIdleButton() {
   const n = () => closableIdle().length;
   return Text(() => (bulkArmed() ? "Click again to close " + n() + " idle" : "Close idle (" + n() + ")"))
-    .font(13).weight("semibold")
+    .font(fs(13)).weight("semibold")
     .color(() => (bulkArmed() ? "#FFFFFF" : n() ? "#FF453A" : "tertiary"))
     .paddingHorizontal(10).paddingVertical(5)
     .cornerRadius(13)
@@ -288,13 +296,17 @@ function closeIdleButton() {
 sidebar(() =>
   VStack({ spacing: 10 }, [
     HStack({ spacing: 10 }, [
-      Text("Workspaces").font(18).bold(),
+      Text("Workspaces").font(fs(18)).bold(),
       Spacer({ minLength: 0 }),
-      Text("Columns").font(12).color("tertiary"),
+      Text("Text").font(fs(12)).color("tertiary"),
+      Button("-", () => stepZoom(-0.1)),
+      Text(() => Math.round(zoom() * 100) + "%").font(fs(12)).monospaced(),
+      Button("+", () => stepZoom(0.1)),
+      Text("Columns").font(fs(12)).color("tertiary").paddingLeading(14),
       Button("-", () => setCols(Math.max(1, cols() - 1))),
-      Text(() => String(cols())).font(12).monospaced(),
+      Text(() => String(cols())).font(fs(12)).monospaced(),
       Button("+", () => setCols(Math.min(8, cols() + 1))),
-      Text(() => data.clock()?.time ?? "").font(12).monospaced().color("tertiary"),
+      Text(() => data.clock()?.time ?? "").font(fs(12)).monospaced().color("tertiary"),
     ]),
     // Filters on their own row, so a narrow pane does not push them off the edge.
     HStack({ spacing: 8 }, [
@@ -316,7 +328,7 @@ sidebar(() =>
       ])
     ),
     ForEach({ items: () => (visible().length ? [] : [{ key: "empty" }]), key: (e) => e.key }, () =>
-      lead(Text("No workspaces in this state.").font(13).color("tertiary"))),
+      lead(Text("No workspaces in this state.").font(fs(13)).color("tertiary"))),
     Spacer(),
   ]).padding(12).frame({ maxWidth: "infinity" })
 )
