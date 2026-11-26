@@ -40,9 +40,10 @@ examples remain available here as authoring references.
 - `status-board.swift`: groups workspaces into urgent, review, progress,
   research, and done lanes using live PR, branch, progress, unread, and prompt
   signals.
-- `workspace-tiles.swift`: a tile grid with one tile per workspace, showing
-  its agent status, branch or pull request, and tabs. Open it as a pane with
-  `cmux sidebar open workspace-tiles`; click a tile or a tab to jump to it.
+- `workspace-tiles.js`: a tile grid with one tile per workspace, showing its
+  status and each tab's own agent status. Header statuses filter the grid.
+  Open it as a pane with `cmux sidebar open workspace-tiles`; click a tile or
+  a tab to jump to it.
 - `finder.swift`: a macOS Finder-style workspace browser with a source list,
   selected workspace inspector, and tab list.
 - `btop-agents.js`: agent activity in the spirit of btop. Each workspace shows
